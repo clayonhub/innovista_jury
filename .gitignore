@@ -11,6 +11,3 @@ env/
 # Python Cache
 __pycache__/
 *.pyc
-
-# Data
-data.json
