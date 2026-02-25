@@ -41,6 +41,8 @@ if 'projects' not in st.session_state:
     st.session_state.projects = loaded_data.get("projects", [])
 if 'embeddings' not in st.session_state:
     st.session_state.embeddings = {}
+if 'editing_jury_idx' not in st.session_state:
+    st.session_state.editing_jury_idx = None
 
 from langchain_huggingface import HuggingFaceEmbeddings
 
@@ -133,19 +135,73 @@ with st.container():
 if st.session_state.juries:
     st.subheader(f"Added Juries ({len(st.session_state.juries)})")
     for idx, j in enumerate(st.session_state.juries):
-        with st.expander(f"{j['name']}", expanded=False):
-            st.markdown(f"**Education:** {j.get('education', j.get('degree', '—'))}")
-            st.markdown(f"**Research Areas:** {j['research_areas']}")
-            st.markdown(f"**Research Details:** {j['research_details']}")
-            st.markdown(
-                f"**H-Index:** {j.get('h_index','—')} | "
-                f"**Experience (Post PhD):** {j.get('experience','—')} | "
-                f"**B.Tech College:** {j.get('btech_college','—')}"
-            )
-            if st.button(f"Delete {j['name']}", key=f"del_jury_{idx}"):
-                st.session_state.juries.pop(idx)
-                save_data()
-                st.rerun()
+        is_editing = st.session_state.editing_jury_idx == idx
+        with st.expander(f"{j['name']}", expanded=is_editing):
+            if is_editing:
+                # ---- EDIT FORM ----
+                with st.form(f"edit_jury_form_{idx}"):
+                    ec1, ec2 = st.columns(2)
+                    with ec1:
+                        e_name = st.text_input("Name", value=j["name"])
+                        e_edu  = st.text_input("Education", value=j.get("education", j.get("degree", "")))
+                    with ec2:
+                        e_areas = st.text_input("Research Areas (comma-separated)", value=j["research_areas"])
+                        e_h = st.selectbox("H-Index", H_INDEX_OPTIONS,
+                                           index=H_INDEX_OPTIONS.index(j.get("h_index", H_INDEX_OPTIONS[0])))
+                    ec3, ec4 = st.columns(2)
+                    with ec3:
+                        e_exp = st.selectbox("Experience (Post PhD)", EXP_OPTIONS,
+                                             index=EXP_OPTIONS.index(j.get("experience", EXP_OPTIONS[0])))
+                    with ec4:
+                        e_inst = st.selectbox("B.Tech College", BTECH_OPTIONS,
+                                              index=BTECH_OPTIONS.index(j.get("btech_college", BTECH_OPTIONS[0])))
+                    e_details = st.text_area("Research Details", value=j["research_details"], height=100)
+
+                    save_col, cancel_col = st.columns(2)
+                    with save_col:
+                        save_edit = st.form_submit_button("💾 Save Changes")
+                    with cancel_col:
+                        cancel_edit = st.form_submit_button("✖ Cancel")
+
+                    if save_edit:
+                        if not all([e_name, e_edu, e_areas, e_details]):
+                            st.error("All fields are required!")
+                        else:
+                            st.session_state.juries[idx] = {
+                                "name": e_name.strip(),
+                                "education": e_edu.strip(),
+                                "research_areas": e_areas.strip(),
+                                "research_details": e_details.strip(),
+                                "h_index": e_h,
+                                "experience": e_exp,
+                                "btech_college": e_inst,
+                            }
+                            save_data()
+                            st.session_state.editing_jury_idx = None
+                            st.rerun()
+                    if cancel_edit:
+                        st.session_state.editing_jury_idx = None
+                        st.rerun()
+            else:
+                # ---- READ-ONLY VIEW ----
+                st.markdown(f"**Education:** {j.get('education', j.get('degree', '—'))}")
+                st.markdown(f"**Research Areas:** {j['research_areas']}")
+                st.markdown(f"**Research Details:** {j['research_details']}")
+                st.markdown(
+                    f"**H-Index:** {j.get('h_index','—')} | "
+                    f"**Experience (Post PhD):** {j.get('experience','—')} | "
+                    f"**B.Tech College:** {j.get('btech_college','—')}"
+                )
+                btn_col1, btn_col2 = st.columns([1, 1])
+                with btn_col1:
+                    if st.button(f"✏️ Edit", key=f"edit_jury_{idx}"):
+                        st.session_state.editing_jury_idx = idx
+                        st.rerun()
+                with btn_col2:
+                    if st.button(f"🗑️ Delete", key=f"del_jury_{idx}"):
+                        st.session_state.juries.pop(idx)
+                        save_data()
+                        st.rerun()
 
 st.divider()
 
