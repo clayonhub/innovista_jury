@@ -1,13 +1,39 @@
-# Environments
-.env
-.env.local
-
-# Virtual Environments
-venv/
-env/
-.venv/
-.env/
-
-# Python Cache
+# python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Do NOT ignore these - they are needed for Streamlit Cloud
+!faculty_master_list.csv
+!faculty_minilm_embeddings.npy
+!faculty_minilm_meta.json
+!sessions.json
