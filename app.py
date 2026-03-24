@@ -765,7 +765,7 @@ if run_btn and st.session_state.projects:
                 prompt += f"Name: {r['name']}\nInterests: {r.get('research_interest', '')}\nWork: {r.get('research_work', '')}\nConsulting: {r.get('consulting', '')}\n\n"
             
             response = client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-3.0-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
