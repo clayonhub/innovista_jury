@@ -3,3 +3,5 @@ numpy
 pandas
 sentence-transformers
 openpyxl
+google-genai
+pydantic

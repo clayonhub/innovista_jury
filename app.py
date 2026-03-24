@@ -24,6 +24,9 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from sentence_transformers import SentenceTransformer
+from google import genai
+from google.genai import types
+from pydantic import BaseModel, Field
 
 # Suppress warnings for cleaner terminal output
 warnings.filterwarnings("ignore")
@@ -44,6 +47,13 @@ REQUIRED_COLS = [
     "research_interest", "email", "phone",
     "research_work", "consulting", "profile_url",
 ]
+
+class FacultyRationale(BaseModel):
+    name: str = Field(description="Exact name of the faculty as provided")
+    rationale: str = Field(description="Maximum 30-word explanation of why they are a strong fit for the projects based on their research/consulting.")
+
+class RationaleList(BaseModel):
+    rationales: list[FacultyRationale]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PAGE CONFIG  (must be first Streamlit call)
@@ -740,6 +750,37 @@ if run_btn and st.session_state.projects:
         avg       = round(float(avg_scores_vec[fac_idx]), 4)
         global_rankings.append({**row, "per_project": per_proj, "avg_score": avg, "rank": rank_i})
 
+    # ── Step 4: AI Rationale Generation (Optional if API key exists) ──────────
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key and global_rankings:
+        prog_match.progress(90, "Generating AI rationales for Top 10…")
+        try:
+            client = genai.Client(api_key=api_key)
+            prompt = f"We have {n_proj} projects:\n"
+            for p in st.session_state.projects:
+                prompt += f"- {p['title']}: {p['description']}\n"
+            
+            prompt += "\nWrite a max 30-word explanation for EACH of the following faculty on why they match these projects. Connect their research interests/work to the projects.\n\n"
+            for r in global_rankings:
+                prompt += f"Name: {r['name']}\nInterests: {r.get('research_interest', '')}\nWork: {r.get('research_work', '')}\nConsulting: {r.get('consulting', '')}\n\n"
+            
+            response = client.models.generate_content(
+                model='gemini-1.5-flash',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=RationaleList,
+                    temperature=0.2,
+                ),
+            )
+            if response.parsed and hasattr(response.parsed, 'rationales'):
+                r_map = {r.name.strip(): r.rationale for r in response.parsed.rationales}
+                for gr in global_rankings:
+                    # attach explicitly generated rationale, or fallback to empty string
+                    gr["rationale"] = r_map.get(gr["name"].strip(), "")
+        except Exception as e:
+            print(f"Gemini rationale error: {e}")
+
     prog_match.progress(100, "Done!")
     time.sleep(0.3)
     prog_match.empty()
@@ -785,6 +826,7 @@ if st.session_state.results:
         ri     = r.get("research_interest", "").strip()
         avg    = r["avg_score"]
         per_p  = r.get("per_project", {})
+        rationale_text = r.get("rationale", "")
 
         name_html = (
             f'<a href="{url}" target="_blank"'
@@ -793,17 +835,27 @@ if st.session_state.results:
         )
         ri_snippet   = ri[:160] + "…" if len(ri) > 160 else ri
         email_html   = f'<span class="badge"><i class="fa-regular fa-envelope" style="margin-right:4px;"></i>{email}</span>' if email else ""
-        ri_html      = (
-            f'<div style="font-size:0.83rem;color:#555;margin-top:6px;font-style:italic;">'
-            f'{ri_snippet}</div>'
-        ) if ri_snippet else ""
+        
+        # We replace the research_interest snippet with the AI Rationale if it exists
+        if rationale_text:
+            rationale_html = (
+                f'<div style="background:#f1f8e9; border-left:4px solid #4caf50; padding:10px 14px; '
+                f'margin-top:12px; border-radius:4px; font-size:0.9rem; color:#2e7d32;">'
+                f'<strong><i class="fa-solid fa-wand-magic-sparkles" style="margin-right:6px;"></i>AI Rationale:</strong> {rationale_text}</div>'
+            )
+        else:
+            rationale_html = (
+                f'<div style="font-size:0.83rem;color:#555;margin-top:10px;font-style:italic;">'
+                f'<i class="fa-solid fa-book-open" style="margin-right:6px;opacity:0.6;"></i>{ri_snippet}</div>'
+            ) if ri_snippet else ""
+
         profile_btn  = (
             f'<a href="{url}" target="_blank" style="'
             'display:inline-flex;align-items:center;gap:6px;'
             'background:linear-gradient(135deg,#2e7d32,#1b5e20);'
             'color:white;border-radius:8px;padding:5px 16px;'
             'font-size:0.8rem;font-weight:600;text-decoration:none;'
-            'margin-top:8px;box-shadow:0 2px 8px rgba(46,125,50,0.3);">'
+            'margin-top:10px;box-shadow:0 2px 8px rgba(46,125,50,0.3);">'
             '<i class="fa-solid fa-arrow-up-right-from-square"></i> View Profile</a>'
         ) if url else ""
         desig_badge  = f"<span class='badge' style='background:#c8e6c9;color:#2e7d32;'>{desig}</span>" if desig else ""
@@ -823,13 +875,14 @@ if st.session_state.results:
     <span class="score-pill">Avg: {avg:.4f}</span>
   </div>
   <div style="margin-top:5px;">
-    <span class="badge" style="background:#c8e6c9;color:#2e7d32;">{coll}</span>
-    <span class="badge" style="background:#c8e6c9;color:#2e7d32;">{dept}</span>
     {desig_badge}
     {email_html}
   </div>
-  <div style="margin-top:6px;">{per_proj_html}</div>
-  {ri_html}
+  <div style="margin-top:6px;">
+    <span style="font-size:0.75rem; color:#666; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-right:8px;">Project Matches:</span>
+    {per_proj_html}
+  </div>
+  {rationale_html}
   {profile_btn}
 </div>
 """, unsafe_allow_html=True)
@@ -853,6 +906,7 @@ if st.session_state.results:
         for pt in proj_titles:
             row[pt] = r.get("per_project", {}).get(pt, 0.0)
         row["Overall Avg Score"] = r["avg_score"]
+        row["AI Rationale"]      = r.get("rationale", "")
         export_rows.append(row)
 
     export_df = pd.DataFrame(export_rows)
