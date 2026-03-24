@@ -53,7 +53,7 @@ REQUIRED_COLS = [
 
 class FacultyRationale(BaseModel):
     name: str = Field(description="Exact name of the faculty as provided")
-    rationale: str = Field(description="Maximum 30-word explanation of why they are a strong fit for the projects based on their research/consulting.")
+    rationale: str = Field(description="A detailed, bulleted justification explaining exactly why the faculty matches EACH individual project based on their specific research or consulting data.")
 
 class RationaleList(BaseModel):
     rationales: list[FacultyRationale]
@@ -763,7 +763,11 @@ if run_btn and st.session_state.projects:
             for p in st.session_state.projects:
                 prompt += f"- {p['title']}: {p['description']}\n"
             
-            prompt += "\nFor EACH of the following faculty, write a max 30-word explanation of why they match these projects. CRITICAL: Do NOT write a generic summary. You MUST explicitly state actual facts or keywords directly from their 'Interests', 'Work', or 'Consulting'. Point out the exact topics they have worked on that overlap with the projects. Be direct and factual.\n\n"
+            prompt += "\nFor EACH faculty below, write a detailed justification for WHY they were selected for THESE projects. CRITICAL: Do NOT write a generic summary.\n"
+            prompt += "You MUST format your rationale EXACTLY as a bulleted list, addressing each project individually like this:\n"
+            prompt += "- **[Project Title]**: [Faculty Name] has done [exact research/keyword from their data] which matches this because [reason].\n"
+            prompt += "- **[Project Title]**: They have consulted on [exact topic] which perfectly aligns because [reason].\n\n"
+            prompt += "You MUST explicitly state actual facts or keywords directly from their 'Interests', 'Work', or 'Consulting' fields. Ensure every project is covered with hard evidence.\n\n"
             for r in global_rankings:
                 prompt += f"Name: {r['name']}\nInterests: {r.get('research_interest', '')}\nWork: {r.get('research_work', '')}\nConsulting: {r.get('consulting', '')}\n\n"
             
