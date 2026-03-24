@@ -27,6 +27,9 @@ from sentence_transformers import SentenceTransformer
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+
+load_dotenv(".env.local")
 
 # Suppress warnings for cleaner terminal output
 warnings.filterwarnings("ignore")
@@ -780,6 +783,10 @@ if run_btn and st.session_state.projects:
                     gr["rationale"] = r_map.get(gr["name"].strip(), "")
         except Exception as e:
             print(f"Gemini rationale error: {e}")
+            st.warning(f"Failed to generate rationale: {e}")
+    else:
+        if not api_key:
+            st.warning("GEMINI_API_KEY is not set in `.env.local` or Streamlit Secrets. AI rationale generation was skipped.")
 
     prog_match.progress(100, "Done!")
     time.sleep(0.3)

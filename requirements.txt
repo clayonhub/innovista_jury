@@ -5,3 +5,4 @@ sentence-transformers
 openpyxl
 google-genai
 pydantic
+python-dotenv
