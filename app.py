@@ -849,10 +849,12 @@ if st.session_state.results:
         
         # We replace the research_interest snippet with the AI Rationale if it exists
         if rationale_text:
+            # Convert markdown newlines to HTML breaks since it's inside a div
+            formatted_text = rationale_text.replace('\n', '<br>')
             rationale_html = (
                 f'<div style="background:#f1f8e9; border-left:4px solid #4caf50; padding:10px 14px; '
                 f'margin-top:12px; border-radius:4px; font-size:0.9rem; color:#2e7d32;">'
-                f'<strong><i class="fa-solid fa-wand-magic-sparkles" style="margin-right:6px;"></i>AI Rationale:</strong> {rationale_text}</div>'
+                f'<strong><i class="fa-solid fa-wand-magic-sparkles" style="margin-right:6px;"></i>AI Rationale:</strong><br>{formatted_text}</div>'
             )
         else:
             rationale_html = (
