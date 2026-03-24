@@ -707,36 +707,47 @@ with col_clr:
         st.rerun()
 
 if run_btn and st.session_state.projects:
-    prog_match  = st.progress(0, "Running semantic matching…")
-    project_res = []
-    jury_scores: dict = {}
+    prog_match = st.progress(0, "Embedding projects…")
+
+    # ── Step 1: embed every project into a (n_proj, 384) matrix ──────────────
+    n_proj      = len(st.session_state.projects)
+    proj_titles = [p["title"] for p in st.session_state.projects]
+    q_vecs      = np.zeros((n_proj, emb_matrix.shape[1]), dtype=np.float32)
 
     for pi, p in enumerate(st.session_state.projects):
-        prog_match.progress(
-            int(pi / n_proj * 90),
-            f"Matching project {pi + 1}/{n_proj}: {p['title'][:40]}…"
-        )
-        query  = f"{p['title']}: {p['description']}"
-        q_vec  = embed_query(query, model)
-        top_idx, top_sims = cosine_topk(emb_matrix, q_vec, TOP_K)
+        prog_match.progress(int(pi / n_proj * 40), f"Encoding project {pi+1}/{n_proj}…")
+        query       = f"{p['title']}: {p['description']}"
+        q_vecs[pi]  = embed_query(query, model)
 
-        rankings = []
-        for idx, sim in zip(top_idx, top_sims):
-            row  = meta_rows[int(idx)]
-            name = row.get("name", "Unknown")
-            rankings.append({**row, "similarity": round(float(sim), 4)})
-            jury_scores[name] = jury_scores.get(name, 0.0) + float(sim)
+    # ── Step 2: score ALL faculty against ALL projects at once ────────────────
+    # score_matrix[i, j] = similarity(faculty_i, project_j)
+    prog_match.progress(50, "Scoring all faculty across all projects…")
+    score_matrix = (emb_matrix @ q_vecs.T)          # shape: (n_faculty, n_proj)
 
-        project_res.append({"project": p["title"], "rankings": rankings})
+    # ── Step 3: average score per faculty across all projects ─────────────────
+    prog_match.progress(70, "Ranking faculty…")
+    avg_scores_vec = score_matrix.mean(axis=1)       # shape: (n_faculty,)
+
+    # top 10 by average score
+    TOP_OVERALL = 10
+    top_idx = np.argsort(avg_scores_vec)[::-1][:TOP_OVERALL]
+
+    global_rankings = []
+    for rank_i, fac_idx in enumerate(top_idx, 1):
+        row       = meta_rows[int(fac_idx)]
+        per_proj  = {proj_titles[j]: round(float(score_matrix[fac_idx, j]), 4)
+                     for j in range(n_proj)}
+        avg       = round(float(avg_scores_vec[fac_idx]), 4)
+        global_rankings.append({**row, "per_project": per_proj, "avg_score": avg, "rank": rank_i})
 
     prog_match.progress(100, "Done!")
     time.sleep(0.3)
     prog_match.empty()
 
     st.session_state.results = {
-        "project_results":   project_res,
-        "jury_total_scores": jury_scores,
-        "n_projects":        n_proj,
+        "global_rankings": global_rankings,
+        "proj_titles":     proj_titles,
+        "n_projects":      n_proj,
     }
     save_current_session()
 
@@ -745,115 +756,48 @@ if run_btn and st.session_state.projects:
 # ── SECTION D — Results ───────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
 if st.session_state.results:
-    res        = st.session_state.results
-    proj_res   = res["project_results"]
-    score_map  = res["jury_total_scores"]
-    n_proj_res = res["n_projects"]
+    res             = st.session_state.results
+    global_rankings = res.get("global_rankings", [])
+    proj_titles     = res.get("proj_titles", [])
+    n_proj_res      = res.get("n_projects", 1)
 
     st.markdown('<hr class="custom-divider">', unsafe_allow_html=True)
-    st.markdown('<p class="section-title">Matching Results</p>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="section-title">Top 10 Recommended Jury Members</p>'
+        f'<p class="section-sub">Ranked by average similarity across all {n_proj_res} project(s). '
+        'Each faculty was scored against every project simultaneously — no project is unfairly weighted.</p>',
+        unsafe_allow_html=True,
+    )
 
     card_cls = {1: "gold", 2: "silver", 3: "bronze"}
     rank_ico = {1: "#1", 2: "#2", 3: "#3"}
 
-    for pr in proj_res:
-        st.markdown(
-            f'<div class="proj-result-header"><i class="fa-solid fa-diagram-project" style="margin-right:8px;"></i>Project: {pr["project"]}</div>',
-            unsafe_allow_html=True,
-        )
+    for r in global_rankings:
+        rank_i = r["rank"]
+        cls    = card_cls.get(rank_i, "")
+        icon   = rank_ico.get(rank_i, f"#{rank_i}")
+        name   = r.get("name", "")
+        url    = r.get("profile_url", "").strip()
+        desig  = r.get("designation", "").strip()
+        coll   = r.get("college", "").strip()
+        dept   = r.get("department", "").strip()
+        email  = r.get("email", "").strip()
+        ri     = r.get("research_interest", "").strip()
+        avg    = r["avg_score"]
+        per_p  = r.get("per_project", {})
 
-        for rank_i, r in enumerate(pr["rankings"], 1):
-            cls   = card_cls.get(rank_i, "")
-            icon  = rank_ico.get(rank_i, f"#{rank_i}")
-            name  = r.get("name", "")
-            url   = r.get("profile_url", "").strip()
-            desig = r.get("designation", "").strip()
-            coll  = r.get("college", "").strip()
-            dept  = r.get("department", "").strip()
-            email = r.get("email", "").strip()
-            ri    = r.get("research_interest", "").strip()
-            score = r["similarity"]
-
-            name_html = (
-                f'<a href="{url}" target="_blank"'
-                f' style="color:#4f2bfc;text-decoration:underline;font-weight:700;">{name}</a>'
-                if url else f'<strong style="color:#1a1040;">{name}</strong>'
-            )
-            ri_snippet   = ri[:160] + "…" if len(ri) > 160 else ri
-            email_html   = f'<span class="badge"><i class="fa-regular fa-envelope" style="margin-right:4px;"></i>{email}</span>' if email else ""
-            ri_html      = (
-                f'<div style="font-size:0.83rem;color:#555;margin-top:6px;font-style:italic;">'
-                f'{ri_snippet}</div>'
-            ) if ri_snippet else ""
-            profile_btn  = (
-                f'<a href="{url}" target="_blank" style="'
-                'display:inline-flex;align-items:center;gap:6px;'
-                'background:linear-gradient(135deg,#003399,#0055cc);'
-                'color:white;border-radius:8px;padding:5px 16px;'
-                'font-size:0.8rem;font-weight:600;text-decoration:none;'
-                'margin-top:8px;box-shadow:0 2px 8px rgba(0,51,153,0.3);">'
-                '<i class="fa-solid fa-arrow-up-right-from-square"></i> View Profile</a>'
-            ) if url else ""
-
-            desig_badge = f"<span class='badge'>{desig}</span>" if desig else ""
-
-            st.markdown(f"""
-<div class="faculty-card {cls}">
-  <div>
-    <span style="font-weight:800;font-size:0.85rem;color:#6d4aff;margin-right:6px;">{icon}</span>
-    <span class="fac-name">{name_html}</span>
-    <span class="score-pill">Score: {score:.4f}</span>
-  </div>
-  <div style="margin-top:5px;">
-    <span class="badge">{coll}</span>
-    <span class="badge">{dept}</span>
-    {desig_badge}
-    {email_html}
-  </div>
-  {ri_html}
-  {profile_btn}
-</div>
-""", unsafe_allow_html=True)
-
-    # ── Overall Ranking ──────────────────────────────────────────────────────
-    st.markdown('<hr class="custom-divider">', unsafe_allow_html=True)
-    st.markdown(
-        '<p class="section-title">Overall Top Faculty</p>'
-        '<p class="section-sub">Ranked by cumulative match score across all submitted projects.</p>',
-        unsafe_allow_html=True,
-    )
-
-    avg_scores = sorted(
-        [(nm, tot / n_proj_res) for nm, tot in score_map.items()],
-        key=lambda x: x[1], reverse=True,
-    )
-
-    all_result_rows: dict = {}
-    for pr in proj_res:
-        for r in pr["rankings"]:
-            all_result_rows.setdefault(r["name"], r)
-
-    for rank_i, (nm, avg) in enumerate(avg_scores[:TOP_K], 1):
-        cls   = card_cls.get(rank_i, "")
-        icon  = rank_ico.get(rank_i, f"#{rank_i}")
-        m     = all_result_rows.get(nm, {})
-        url   = m.get("profile_url", "").strip()
-        coll  = m.get("college", "").strip()
-        dept  = m.get("department", "").strip()
-        desig = m.get("designation", "").strip()
-        ri    = m.get("research_interest", "").strip()
-        ri_snippet = ri[:160] + "…" if len(ri) > 160 else ri
-
-        name_html_ov = (
+        name_html = (
             f'<a href="{url}" target="_blank"'
-            f' style="color:#1b5e20;text-decoration:underline;font-weight:700;">{nm}</a>'
-            if url else f'<strong style="color:#1a1040;">{nm}</strong>'
+            f' style="color:#1b5e20;text-decoration:underline;font-weight:700;">{name}</a>'
+            if url else f'<strong style="color:#1a1040;">{name}</strong>'
         )
-        ri_html_ov = (
+        ri_snippet   = ri[:160] + "…" if len(ri) > 160 else ri
+        email_html   = f'<span class="badge"><i class="fa-regular fa-envelope" style="margin-right:4px;"></i>{email}</span>' if email else ""
+        ri_html      = (
             f'<div style="font-size:0.83rem;color:#555;margin-top:6px;font-style:italic;">'
             f'{ri_snippet}</div>'
         ) if ri_snippet else ""
-        profile_btn_ov = (
+        profile_btn  = (
             f'<a href="{url}" target="_blank" style="'
             'display:inline-flex;align-items:center;gap:6px;'
             'background:linear-gradient(135deg,#2e7d32,#1b5e20);'
@@ -862,24 +806,31 @@ if st.session_state.results:
             'margin-top:8px;box-shadow:0 2px 8px rgba(46,125,50,0.3);">'
             '<i class="fa-solid fa-arrow-up-right-from-square"></i> View Profile</a>'
         ) if url else ""
-        desig_badge_ov = (
-            f"<span class='badge' style='background:#c8e6c9;color:#2e7d32;'>{desig}</span>"
-        ) if desig else ""
+        desig_badge  = f"<span class='badge' style='background:#c8e6c9;color:#2e7d32;'>{desig}</span>" if desig else ""
+
+        # Per-project score pills
+        per_proj_html = " ".join(
+            f'<span class="badge" style="background:#e8eaf6;color:#3949ab;" '
+            f'title="{pt}">{pt[:20]}: {score:.3f}</span>'
+            for pt, score in per_p.items()
+        )
 
         st.markdown(f"""
-<div class="overall-card">
+<div class="overall-card {cls}">
   <div>
     <span style="font-weight:800;font-size:0.85rem;color:#2e7d32;margin-right:6px;">{icon}</span>
-    <span class="fac-name">{name_html_ov}</span>
+    <span class="fac-name">{name_html}</span>
     <span class="score-pill">Avg: {avg:.4f}</span>
   </div>
   <div style="margin-top:5px;">
     <span class="badge" style="background:#c8e6c9;color:#2e7d32;">{coll}</span>
     <span class="badge" style="background:#c8e6c9;color:#2e7d32;">{dept}</span>
-    {desig_badge_ov}
+    {desig_badge}
+    {email_html}
   </div>
-  {ri_html_ov}
-  {profile_btn_ov}
+  <div style="margin-top:6px;">{per_proj_html}</div>
+  {ri_html}
+  {profile_btn}
 </div>
 """, unsafe_allow_html=True)
 
@@ -887,29 +838,21 @@ if st.session_state.results:
     st.markdown('<hr class="custom-divider">', unsafe_allow_html=True)
     st.markdown('<p class="section-title">Export Results</p>', unsafe_allow_html=True)
 
-    score_lookup: dict = {}
-    for pr in proj_res:
-        for r in pr["rankings"]:
-            score_lookup.setdefault(r["name"], {})[pr["project"]] = r["similarity"]
-
-    proj_titles = [pr["project"] for pr in proj_res]
-
     export_rows = []
-    for rank_i, (nm, avg) in enumerate(avg_scores, 1):
-        m   = all_result_rows.get(nm, {})
+    for r in global_rankings:
         row = {
-            "Rank":         rank_i,
-            "Faculty Name": nm,
-            "Designation":  m.get("designation", ""),
-            "College":      m.get("college", ""),
-            "Department":   m.get("department", ""),
-            "Email":        m.get("email", ""),
-            "Profile URL":  m.get("profile_url", ""),
-            "Consulting":   m.get("consulting", ""),
+            "Rank":         r["rank"],
+            "Faculty Name": r.get("name", ""),
+            "Designation":  r.get("designation", ""),
+            "College":      r.get("college", ""),
+            "Department":   r.get("department", ""),
+            "Email":        r.get("email", ""),
+            "Profile URL":  r.get("profile_url", ""),
+            "Consulting":   r.get("consulting", ""),
         }
         for pt in proj_titles:
-            row[pt] = score_lookup.get(nm, {}).get(pt, 0.0)
-        row["Overall Avg Score"] = round(avg, 4)
+            row[pt] = r.get("per_project", {}).get(pt, 0.0)
+        row["Overall Avg Score"] = r["avg_score"]
         export_rows.append(row)
 
     export_df = pd.DataFrame(export_rows)
@@ -937,3 +880,5 @@ if st.session_state.results:
             file_name="jury_matching_results.csv",
             mime="text/csv", use_container_width=True,
         )
+
+
