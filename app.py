@@ -39,11 +39,12 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
 CSV_PATH      = "faculty_master_list.csv"
-EMB_PATH      = "faculty_minilm_embeddings.npy"
-META_PATH     = "faculty_minilm_meta.json"
+EMB_PATH      = "faculty_bge_embeddings.npy"
+META_PATH     = "faculty_bge_meta.json"
 SESSIONS_FILE = "sessions.json"
 TOP_K         = 5
-EMB_MODEL     = "all-MiniLM-L6-v2"   # 384-dim, ultra-fast 80MB model
+EMB_MODEL     = "BAAI/bge-large-en-v1.5"   # SOTA 1024-dim, ~1.3GB
+
 
 REQUIRED_COLS = [
     "name", "college", "department", "designation",
@@ -367,7 +368,7 @@ def load_embeddings_from_disk(csv_hash: str, n_rows: int):
     emb   = np.load(EMB_PATH).astype(np.float32)
     meta  = stored["rows"]
     
-    CHUNK_MAP_PATH = "faculty_minilm_chunk_map.npy"
+    CHUNK_MAP_PATH = "faculty_bge_chunk_map.npy"
     if os.path.exists(CHUNK_MAP_PATH):
         chunk_map = np.load(CHUNK_MAP_PATH)
     else:
@@ -744,7 +745,8 @@ if run_btn and st.session_state.projects:
 
     for pi, p in enumerate(st.session_state.projects):
         prog_match.progress(int(pi / n_proj * 40), f"Encoding project {pi+1}/{n_proj}…")
-        query       = f"{p['title']}: {p['description']}"
+        # BAAI/bge models require a specific instruction prefix for queries to unlock performance
+        query       = f"Represent this sentence for searching relevant passages: {p['title']}: {p['description']}"
         q_vecs[pi]  = embed_query(query, model)
 
     # ── Step 2: score ALL faculty across ALL projects at once ─────────────────

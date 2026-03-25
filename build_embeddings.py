@@ -33,10 +33,10 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # ── Config (must match app.py) ────────────────────────────────────────────────
 CSV_PATH   = "faculty_master_list.csv"
-EMB_PATH   = "faculty_minilm_embeddings.npy"
-META_PATH  = "faculty_minilm_meta.json"
-BATCH_SIZE = 512
-EMB_MODEL  = "all-MiniLM-L6-v2"
+EMB_PATH   = "faculty_bge_embeddings.npy"
+META_PATH  = "faculty_bge_meta.json"
+BATCH_SIZE = 128  # Lower batch size for the 1.3GB model on Colab GPU
+EMB_MODEL  = "BAAI/bge-large-en-v1.5"
 
 REQUIRED_COLS = [
     "name", "college", "department", "designation",
@@ -125,7 +125,7 @@ def main():
 
     # ── 2. Check if embeddings are already up to date ─────────────────────────
     csv_hash = df_hash(df)
-    chunk_map_path = "faculty_minilm_chunk_map.npy"
+    chunk_map_path = "faculty_bge_chunk_map.npy"
     if os.path.exists(EMB_PATH) and os.path.exists(META_PATH) and os.path.exists(chunk_map_path):
         with open(META_PATH, encoding="utf-8") as f:
             stored = json.load(f)
