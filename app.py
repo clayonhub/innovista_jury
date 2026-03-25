@@ -411,6 +411,15 @@ def embed_query(text: str) -> np.ndarray:
     response = requests.post(url, headers=headers, json=payload)
     if response.status_code != 200:
         st.error(f"❌ HuggingFace API Error: {response.text}")
+        
+        # Security-safe Debugging
+        safe_token = hf_token[:5] + "..." + hf_token[-4:] if len(hf_token) > 10 else "TOO_SHORT"
+        st.info(
+            f"**Debug Info:**\n"
+            f"- Token seen by Streamlit: `{safe_token}` (Length: {len(hf_token)})\n"
+            f"- If length is correct (usually exactly 37 characters) but you still see 'Invalid password':\n"
+            f"**Your Hugging Face token does not have Inference Permissions.** When you generate the token on Hugging Face, you MUST check the box that says 'Make calls to the Serverless Inference API' or use a legacy 'Read' token."
+        )
         st.stop()
         
     vector = np.array(response.json(), dtype=np.float32)
