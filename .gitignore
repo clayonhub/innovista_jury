@@ -23,6 +23,7 @@ wheels/
 
 # environments
 .env
+.env.*
 .venv
 env/
 venv/
