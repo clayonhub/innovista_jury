@@ -53,15 +53,31 @@ META_COLS = [
 def chunk_text(text: str, max_words=100) -> list:
     parts = [p.strip() for p in text.split('|') if p.strip()]
     final_chunks = []
+    
     for part in parts:
-        words = part.split()
-        if len(words) <= max_words:
+        if len(part.split()) <= max_words:
             final_chunks.append(part)
         else:
-            # Overlapping sliding window fallback for continuous blobs
-            for i in range(0, len(words), max_words - 20):
-                sub_chunk = " ".join(words[i:i+max_words])
-                final_chunks.append(sub_chunk)
+            # Smart Fallback: Split by sentences so we never chop a thought in half
+            sentences = [s.strip() + "." for s in part.split('. ') if s.strip()]
+            current_chunk = []
+            current_words = 0
+            
+            for sentence in sentences:
+                sent_words = len(sentence.split())
+                # If adding this sentence pushes us over the limit, save the chunk and start a new one
+                if current_words + sent_words > max_words and current_chunk:
+                    final_chunks.append(" ".join(current_chunk))
+                    current_chunk = [sentence]
+                    current_words = sent_words
+                else:
+                    current_chunk.append(sentence)
+                    current_words += sent_words
+                    
+            # Add any remaining sentences as the final chunk
+            if current_chunk:
+                final_chunks.append(" ".join(current_chunk))
+                
     return final_chunks
 
 def build_doc_chunks(row) -> list:
