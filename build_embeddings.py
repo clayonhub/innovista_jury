@@ -50,16 +50,40 @@ META_COLS = [
 ]
 
 
-def build_doc_text(row) -> str:
-    """Combine research_interest + research_work into one embedding document."""
+def chunk_text(text: str, max_words=100) -> list:
+    parts = [p.strip() for p in text.split('|') if p.strip()]
+    final_chunks = []
+    for part in parts:
+        words = part.split()
+        if len(words) <= max_words:
+            final_chunks.append(part)
+        else:
+            # Overlapping sliding window fallback for continuous blobs
+            for i in range(0, len(words), max_words - 20):
+                sub_chunk = " ".join(words[i:i+max_words])
+                final_chunks.append(sub_chunk)
+    return final_chunks
+
+def build_doc_chunks(row) -> list:
+    """Break research text into multiple small, dense chunks to prevent dilution."""
     ri = str(row.get("research_interest", "")).strip()
     rw = str(row.get("research_work", "")).strip()
-    parts = []
+    cns = str(row.get("consulting", "")).strip()
+    
+    chunks = []
     if ri:
-        parts.append(f"Research Interests: {ri}")
+        for c in chunk_text(ri, 100):
+            chunks.append(f"Research Interests: {c}")
     if rw:
-        parts.append(f"Research Work: {rw[:600]}")
-    return "\n".join(parts)
+        for c in chunk_text(rw, 100):
+            chunks.append(f"Research Work: {c}")
+    if cns:
+        for c in chunk_text(cns, 100):
+            chunks.append(f"Consulting: {c}")
+            
+    if not chunks:
+        chunks.append("No research data.")
+    return chunks
 
 
 def df_hash(df: pd.DataFrame) -> str:
@@ -85,7 +109,8 @@ def main():
 
     # ── 2. Check if embeddings are already up to date ─────────────────────────
     csv_hash = df_hash(df)
-    if os.path.exists(EMB_PATH) and os.path.exists(META_PATH):
+    chunk_map_path = "faculty_minilm_chunk_map.npy"
+    if os.path.exists(EMB_PATH) and os.path.exists(META_PATH) and os.path.exists(chunk_map_path):
         with open(META_PATH, encoding="utf-8") as f:
             stored = json.load(f)
         if stored.get("csv_hash") == csv_hash and stored.get("n_rows") == len(df):
@@ -101,14 +126,22 @@ def main():
     print(f"    Model loaded in {time.time()-t1:.1f}s")
 
     # ── 4. Build texts ────────────────────────────────────────────────────────
-    print(f"\n📝  Building document texts for {len(df):,} faculty …")
-    texts = df.apply(build_doc_text, axis=1).tolist()
+    print(f"\n📝  Building document chunks for {len(df):,} faculty …")
+    all_chunks = []
+    chunk_to_fac = []
+    
+    for fac_idx, row in df.iterrows():
+        chunks = build_doc_chunks(row)
+        all_chunks.extend(chunks)
+        chunk_to_fac.extend([fac_idx] * len(chunks))
+        
+    print(f"    Generated {len(all_chunks):,} total chunks.")
 
     # ── 5. Encode ─────────────────────────────────────────────────────────────
     print(f"⚡  Encoding with batch_size={BATCH_SIZE} — this should be very fast …")
     t2 = time.time()
     emb = model.encode(
-        texts,
+        all_chunks,
         batch_size=BATCH_SIZE,
         show_progress_bar=True,
         normalize_embeddings=True,
@@ -124,6 +157,9 @@ def main():
     # ── 6. Save embeddings ────────────────────────────────────────────────────
     print(f"\n💾  Saving {EMB_PATH} …")
     np.save(EMB_PATH, emb)
+    
+    print(f"💾  Saving chunk map to {chunk_map_path} …")
+    np.save(chunk_map_path, np.array(chunk_to_fac, dtype=np.int32))
 
     # ── 7. Save metadata ──────────────────────────────────────────────────────
     print(f"💾  Saving {META_PATH} …")
@@ -138,8 +174,9 @@ def main():
 
     size_mb = os.path.getsize(EMB_PATH) / 1e6
     print(f"\n✅  Done in {time.time()-t0:.1f}s total")
-    print(f"    EMB : {EMB_PATH}  ({size_mb:.1f} MB)")
-    print(f"    META: {META_PATH}  ({len(meta):,} records)")
+    print(f"    EMB      : {EMB_PATH}  ({size_mb:.1f} MB)")
+    print(f"    CHUNK MAP: {chunk_map_path} ({len(chunk_to_fac):,} mapped chunks)")
+    print(f"    META     : {META_PATH}  ({len(meta):,} records)")
     print(f"\n🚀  You can now run:  streamlit run app.py")
 
 

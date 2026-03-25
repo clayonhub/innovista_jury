@@ -353,8 +353,7 @@ def _df_hash(df: pd.DataFrame) -> str:
 def load_embeddings_from_disk(csv_hash: str, n_rows: int):
     """
     Load pre-built embeddings from disk.
-    Returns (emb_matrix float32 L2-normed, meta list[dict])
-    Raises FileNotFoundError if files are missing or stale.
+    Returns (emb_matrix float32 L2-normed, meta list[dict], chunk_map np.ndarray)
     """
     if not os.path.exists(EMB_PATH) or not os.path.exists(META_PATH):
         raise FileNotFoundError("missing")
@@ -367,9 +366,17 @@ def load_embeddings_from_disk(csv_hash: str, n_rows: int):
 
     emb   = np.load(EMB_PATH).astype(np.float32)
     meta  = stored["rows"]
+    
+    CHUNK_MAP_PATH = "faculty_minilm_chunk_map.npy"
+    if os.path.exists(CHUNK_MAP_PATH):
+        chunk_map = np.load(CHUNK_MAP_PATH)
+    else:
+        # Fallback logic if the chunk map isn't generated yet
+        chunk_map = np.arange(len(meta), dtype=np.int32)
+        
     norms = np.linalg.norm(emb, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
-    return emb / norms, meta
+    return emb / norms, meta, chunk_map
 
 
 def cosine_topk(emb_matrix: np.ndarray, query_vec: np.ndarray, k: int):
@@ -461,7 +468,7 @@ faculty_df = load_faculty_df(CSV_PATH, csv_mtime)
 csv_hash   = _df_hash(faculty_df)
 
 try:
-    emb_matrix, meta_rows = load_embeddings_from_disk(csv_hash, len(faculty_df))
+    emb_matrix, meta_rows, chunk_map = load_embeddings_from_disk(csv_hash, len(faculty_df))
 except FileNotFoundError as _e:
     reason = "stale (CSV has changed)" if "stale" in str(_e) else "not found"
     st.error(
@@ -740,10 +747,14 @@ if run_btn and st.session_state.projects:
         query       = f"{p['title']}: {p['description']}"
         q_vecs[pi]  = embed_query(query, model)
 
-    # ── Step 2: score ALL faculty against ALL projects at once ────────────────
-    # score_matrix[i, j] = similarity(faculty_i, project_j)
-    prog_match.progress(50, "Scoring faculty across all projects…")
-    score_matrix = (emb_matrix @ q_vecs.T)          # shape: (n_faculty, n_proj)
+    # ── Step 2: score ALL faculty across ALL projects at once ─────────────────
+    prog_match.progress(50, "Scoring all isolated paper chunks against projects…")
+    chunk_scores = (emb_matrix @ q_vecs.T)  # shape: (n_chunks, n_proj)
+
+    # Chunk-Max Pooling: Combine chunks back into faculty
+    n_faculty = len(meta_rows)
+    score_matrix = np.full((n_faculty, n_proj), -1.0, dtype=np.float32)
+    np.maximum.at(score_matrix, chunk_map, chunk_scores)
 
     # If specific faculty were requested, subset the matrix
     if selected_facs:
