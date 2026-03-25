@@ -398,7 +398,7 @@ def embed_query(text: str) -> np.ndarray:
         st.error("❌ Missing `HF_TOKEN` in Streamlit Cloud Secrets. Cannot embed query.")
         st.stop()
         
-    url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{EMB_MODEL}"
+    url = f"https://router.huggingface.co/hf-inference/models/{EMB_MODEL}"
     headers = {"Authorization": f"Bearer {hf_token}"}
     payload = {"inputs": text}
     
