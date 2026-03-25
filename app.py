@@ -976,7 +976,7 @@ if st.session_state.results:
             "⬇️ Download Excel (.xlsx)", data=xbuf,
             file_name="jury_matching_results.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width="stretch",
         )
     with ex2:
         st.download_button(
