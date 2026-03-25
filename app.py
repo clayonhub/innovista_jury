@@ -468,6 +468,14 @@ csv_mtime  = os.path.getmtime(CSV_PATH)
 faculty_df = load_faculty_df(CSV_PATH, csv_mtime)
 csv_hash   = _df_hash(faculty_df)
 
+# Google Drive Auto-Downloader (For Streamlit Cloud deployments)
+if not os.path.exists(EMB_PATH) or not os.path.exists(META_PATH) or not os.path.exists("faculty_bge_chunk_map.npy"):
+    import gdown
+    with st.spinner("Downloading 488MB BGE Matrix from Google Drive... (This only happens once on boot!)"):
+        url = 'https://drive.google.com/drive/folders/1laKgLhu8pUq4RNiF5xw5tgB5Gvtxzmvz?usp=sharing'
+        out_dir = os.path.dirname(os.path.abspath(__file__))
+        gdown.download_folder(url, output=out_dir, quiet=False, use_cookies=False)
+
 try:
     emb_matrix, meta_rows, chunk_map = load_embeddings_from_disk(csv_hash, len(faculty_df))
 except FileNotFoundError as _e:
