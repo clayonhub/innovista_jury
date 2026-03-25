@@ -23,7 +23,9 @@ import warnings
 import numpy as np
 import pandas as pd
 import streamlit as st
-from sentence_transformers import SentenceTransformer
+import pandas as pd
+import streamlit as st
+import requests
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
@@ -389,13 +391,29 @@ def cosine_topk(emb_matrix: np.ndarray, query_vec: np.ndarray, k: int):
     return idx, sims[idx]
 
 
-def embed_query(text: str, model: SentenceTransformer) -> np.ndarray:
-    """Embed a project query directly via local model + L2 normalise."""
-    vec = model.encode(
-        text, normalize_embeddings=True, convert_to_numpy=True
-    ).astype(np.float32)
-    n = np.linalg.norm(vec)
-    return vec / n if n > 0 else vec
+def embed_query(text: str) -> np.ndarray:
+    """Embed query via HuggingFace Serverless Inference API instead of 1.3GB local RAM load."""
+    hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token:
+        st.error("❌ Missing `HF_TOKEN` in Streamlit Cloud Secrets. Cannot embed query.")
+        st.stop()
+        
+    url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{EMB_MODEL}"
+    headers = {"Authorization": f"Bearer {hf_token}"}
+    payload = {"inputs": text}
+    
+    response = requests.post(url, headers=headers, json=payload)
+    if response.status_code != 200:
+        st.error(f"❌ HuggingFace API Error: {response.text}")
+        st.stop()
+        
+    vector = np.array(response.json(), dtype=np.float32)
+    
+    if len(vector.shape) == 2:
+        vector = vector[0]
+
+    n = np.linalg.norm(vector)
+    return vector / n if n > 0 else vector
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -487,8 +505,7 @@ except FileNotFoundError as _e:
     )
     st.stop()
 
-# Load the small model for runtime querying
-model = get_model()
+# Model is now handled Serverless via HuggingFace API
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -755,7 +772,7 @@ if run_btn and st.session_state.projects:
         prog_match.progress(int(pi / n_proj * 40), f"Encoding project {pi+1}/{n_proj}…")
         # BAAI/bge models require a specific instruction prefix for queries to unlock performance
         query       = f"Represent this sentence for searching relevant passages: {p['title']}: {p['description']}"
-        q_vecs[pi]  = embed_query(query, model)
+        q_vecs[pi]  = embed_query(query)
 
     # ── Step 2: score ALL faculty across ALL projects at once ─────────────────
     prog_match.progress(50, "Scoring all isolated paper chunks against projects…")
