@@ -394,9 +394,15 @@ def cosine_topk(emb_matrix: np.ndarray, query_vec: np.ndarray, k: int):
 def embed_query(text: str) -> np.ndarray:
     """Embed query via HuggingFace Serverless Inference API instead of 1.3GB local RAM load."""
     hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token and "HF_TOKEN" in st.secrets:
+        hf_token = st.secrets["HF_TOKEN"]
+        
     if not hf_token:
         st.error("❌ Missing `HF_TOKEN` in Streamlit Cloud Secrets. Cannot embed query.")
         st.stop()
+        
+    # Streamlit sometimes includes the literal quotes from the Secrets panel. Strip them.
+    hf_token = hf_token.strip().strip('"').strip("'")
         
     url = f"https://router.huggingface.co/hf-inference/models/{EMB_MODEL}"
     headers = {"Authorization": f"Bearer {hf_token}"}
