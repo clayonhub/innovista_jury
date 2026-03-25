@@ -705,6 +705,14 @@ st.markdown('<hr class="custom-divider">', unsafe_allow_html=True)
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown('<p class="section-title">Run Matching</p>', unsafe_allow_html=True)
 
+all_fac_names = sorted(list(set(r.get("name", "") for r in meta_rows if r.get("name"))))
+selected_facs = st.multiselect(
+    "Focus Search (Optional): Limit matching strictly to these specific faculty members.",
+    options=all_fac_names,
+    default=[],
+    help="Leave empty to search the entire database. Very useful for checking why a specific professor did or did not match."
+)
+
 n_proj = len(st.session_state.projects)
 col_run, col_clr = st.columns([2, 1])
 with col_run:
@@ -734,23 +742,32 @@ if run_btn and st.session_state.projects:
 
     # ── Step 2: score ALL faculty against ALL projects at once ────────────────
     # score_matrix[i, j] = similarity(faculty_i, project_j)
-    prog_match.progress(50, "Scoring all faculty across all projects…")
+    prog_match.progress(50, "Scoring faculty across all projects…")
     score_matrix = (emb_matrix @ q_vecs.T)          # shape: (n_faculty, n_proj)
+
+    # If specific faculty were requested, subset the matrix
+    if selected_facs:
+        fac_indices = [i for i, r in enumerate(meta_rows) if r.get("name") in selected_facs]
+    else:
+        fac_indices = list(range(len(meta_rows)))
+        
+    score_matrix_sub = score_matrix[fac_indices, :]
 
     # ── Step 3: average score per faculty across all projects ─────────────────
     prog_match.progress(70, "Ranking faculty…")
-    avg_scores_vec = score_matrix.mean(axis=1)       # shape: (n_faculty,)
+    avg_scores_vec = score_matrix_sub.mean(axis=1)       # shape: (len(fac_indices),)
 
-    # top 10 by average score
-    TOP_OVERALL = 10
-    top_idx = np.argsort(avg_scores_vec)[::-1][:TOP_OVERALL]
+    # top 10 by average score (or show all requested if filtering)
+    TOP_OVERALL = min(10, len(fac_indices)) if not selected_facs else len(fac_indices)
+    top_sub_idx = np.argsort(avg_scores_vec)[::-1][:TOP_OVERALL]
 
     global_rankings = []
-    for rank_i, fac_idx in enumerate(top_idx, 1):
-        row       = meta_rows[int(fac_idx)]
-        per_proj  = {proj_titles[j]: round(float(score_matrix[fac_idx, j]), 4)
+    for rank_i, sub_idx in enumerate(top_sub_idx, 1):
+        actual_fac_idx = fac_indices[sub_idx]
+        row       = meta_rows[int(actual_fac_idx)]
+        per_proj  = {proj_titles[j]: round(float(score_matrix_sub[sub_idx, j]), 4)
                      for j in range(n_proj)}
-        avg       = round(float(avg_scores_vec[fac_idx]), 4)
+        avg       = round(float(avg_scores_vec[sub_idx]), 4)
         global_rankings.append({**row, "per_project": per_proj, "avg_score": avg, "rank": rank_i})
 
     # ── Step 4: AI Rationale Generation (Optional if API key exists) ──────────
